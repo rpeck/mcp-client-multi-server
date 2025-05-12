@@ -1,0 +1,48 @@
+{
+  "mcpServers": {
+    "echo": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "examples/echo_server.py"
+      ],
+      "env": {}
+    },
+    "fetch": {
+      "type": "stdio",
+      "command": "/Users/rpeck/Dropbox/__tilde/.pyenv/versions/3.13.3/envs/mcp-projects/bin/uvx",
+      "args": [
+        "mcp-server-fetch"
+      ],
+      "env": {}
+    },
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": {}
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@executeautomation/playwright-mcp-server"
+      ],
+      "env": {}
+    },
+    "filesystem": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/rpeck"
+      ],
+      "env": {}
+    }
+  }
+}
