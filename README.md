@@ -2,6 +2,41 @@
 
 A Python client for connecting to multiple Model Context Protocol (MCP) servers simultaneously. This client is compatible with Claude Desktop's configuration format and supports various server types including Python scripts, Node.js applications, and npx packages.
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Concepts and Architecture](#concepts-and-architecture)
+  - [Transport Types](#transport-types)
+  - [Server Lifecycle Management](#server-lifecycle-management)
+  - [Server Registry and Error Reporting](#server-registry-and-error-reporting)
+- [Configuration](#configuration)
+- [Server Types](#server-types)
+  - [General Server Types](#general-server-types)
+  - [Specialized Servers](#specialized-servers)
+  - [Required NPM Packages](#required-npm-packages)
+  - [Custom Server Implementations](#custom-server-implementations)
+- [Usage](#usage)
+  - [Command Line Interface](#command-line-interface)
+  - [Using as a Module](#using-as-a-module)
+- [Development and Testing](#development-and-testing)
+  - [Prerequisites](#prerequisites)
+  - [Test Commands](#test-commands)
+  - [Testing Coverage by Server Type](#testing-coverage-by-server-type)
+  - [API Documentation Tests](#api-documentation-tests)
+  - [Writing Custom Tests](#writing-custom-tests)
+  - [TextContent Handling in Tests](#textcontent-handling-in-tests)
+- [Included Examples](#included-examples)
+- [Contributing](#contributing)
+- [Future Development](#future-development)
+  - [Transport and Protocol Support](#transport-and-protocol-support)
+  - [Server Lifecycle Management](#server-lifecycle-management-1)
+  - [Server Registry and Discovery](#server-registry-and-discovery)
+  - [Additional Language Server Support](#additional-language-server-support)
+  - [Extended API Support](#extended-api-support)
+  - [CLI and User Experience](#cli-and-user-experience)
+- [License](#license)
+
 ## Features
 
 - **Multi-server support**: Connect to and manage multiple MCP servers from a single client
