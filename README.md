@@ -7,21 +7,187 @@ A Python client for connecting to multiple Model Context Protocol (MCP) servers 
 - **Multi-server support**: Connect to and manage multiple MCP servers from a single client
 - **Claude Desktop compatibility**: Uses the same configuration format as Claude Desktop
 - **Server launching**: Automatically launch local servers when needed
-- **Transport flexibility**: Support for WebSockets, SSE, stdio, and other transport types
+- **Enhanced transport support**: Flexible configuration for STDIO, WebSockets, SSE, Streamable HTTP transport types with comprehensive testing
 - **Simple query interface**: Easy-to-use API for sending messages to specific servers
 - **Tool discovery**: List available tools from each server
 - **NPX server support**: Custom transport handling for npm-based MCP servers
 
 ## Installation
 
+The project uses `uv` as the preferred package manager for faster and more reliable dependency management. You can install with either `uv` or traditional `pip`:
+
 ```bash
-# Install from PyPI (once published)
+# Install from PyPI using uv (recommended)
+uv pip install mcp-client-multi-server
+
+# Install from PyPI using pip
 pip install mcp-client-multi-server
 
-# Or install from source
+# Or install from source with uv (recommended)
+git clone https://github.com/yourusername/mcp-client-multi-server.git
+cd mcp-client-multi-server
+uv pip install -e .
+
+# Or install from source with pip
 git clone https://github.com/yourusername/mcp-client-multi-server.git
 cd mcp-client-multi-server
 pip install -e .
+```
+
+## Concepts and Architecture
+
+### Transport Types
+
+The MCP Multi-Server Client supports multiple transport types, each with different capabilities and use cases:
+
+#### 1. STDIO Transport
+- Direct communication through stdin/stdout pipes
+- Used for local Python scripts, Node.js scripts, and NPX packages
+- Simplest transport with no network requirements
+- Example configuration:
+```json
+{
+  "type": "stdio",
+  "command": "python",
+  "args": ["examples/multi_transport_echo.py", "--transport", "stdio"]
+}
+```
+
+#### 2. WebSocket Transport
+- Bidirectional communication over WebSocket protocol
+- Supports secure (WSS) and non-secure (WS) connections
+- Configurable with ping intervals, timeouts, and compression
+- Example configuration:
+```json
+{
+  "url": "wss://example.com/mcp/ws",
+  "ws_config": {
+    "ping_interval": 30.0,
+    "ping_timeout": 10.0,
+    "max_message_size": 1048576,
+    "compression": true
+  }
+}
+```
+
+#### 3. Server-Sent Events (SSE) Transport
+- HTTP-based protocol for server-to-client streaming
+- Good for scenarios with mostly server-to-client communication
+- Example configuration:
+```json
+{
+  "type": "sse",
+  "url": "https://example.com/mcp/sse"
+}
+```
+
+#### 4. Streamable HTTP Transport
+- HTTP-based transport with custom headers and timeout options
+- Supports streaming responses
+- Example configuration:
+```json
+{
+  "type": "streamable-http",
+  "url": "https://example.com/mcp/stream",
+  "http_config": {
+    "headers": {
+      "Authorization": "Bearer token123",
+      "Custom-Header": "Value"
+    },
+    "timeout": 60.0,
+    "retry_count": 3,
+    "retry_delay": 1.0
+  }
+}
+```
+
+All transport types are thoroughly tested in our test suite, with specific tests for each transport in `tests/test_echo_transports.py` and `tests/test_transports.py`.
+
+### Server Lifecycle Management
+
+The client includes intelligent server lifecycle management to handle different types of servers appropriately:
+
+#### Server Types and Lifecycle
+
+- **Local STDIO Servers**: Servers that rely on stdin/stdout pipes for communication (Python scripts, Node.js scripts, etc.) are automatically stopped when the client exits, unless specifically requested to keep running.
+
+- **Socket-based Servers**: Servers that use Unix or TCP sockets for communication can remain running after the client exits and be reconnected to by future client instances.
+
+- **Remote Servers**: For HTTP/WebSocket servers, the client only disconnects but never attempts to stop them.
+
+#### Launch Methods
+
+##### 1. Python Scripts
+- Direct execution of Python scripts with the python interpreter
+- Example: `"command": "python", "args": ["path/to/script.py"]`
+- Supports environment variables and arguments
+
+##### 2. Node.js Scripts
+- Direct execution of JavaScript files with Node.js
+- Example: `"command": "node", "args": ["path/to/script.js"]`
+
+##### 3. NPX Packages
+- Execution of npm packages without installation using npx
+- Example: `"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"]`
+- `-y` flag automatically answers yes to installation prompts
+
+##### 4. UVX Packages
+- Python packages run through the UVX runner
+- Example: `"command": "uvx", "args": ["mcp-server-fetch"]`
+- Faster startup than traditional Python package installation
+
+##### 5. Custom Executables
+- Any executable available on the system path
+- Example: `"command": "/path/to/custom/executable", "args": ["arg1", "arg2"]`
+
+### Server Registry and Error Reporting
+
+The client maintains a registry of running servers in `~/.mcp-client-multi-server/servers.json`, which includes:
+
+- Server name and PID
+- Log file locations
+- Start time
+- Configuration hash
+
+This allows the client to:
+1. Detect running servers across different client instances
+2. Track log files for each server
+3. Reconnect to existing servers rather than launching new instances
+4. Properly clean up resources when servers are stopped
+5. Surface error details when server launches fail
+
+#### Server Error Debugging
+
+When a server fails to start or crashes during initialization, the client provides detailed error feedback:
+
+1. Error details from the server's stderr are captured and displayed
+2. Output is directed to stderr when appropriate
+3. Log file locations are provided for further investigation
+4. Common issues like missing dependencies are clearly reported
+
+All server output is logged to files in `~/.mcp-client-multi-server/logs/`:
+- Each server has its own stdout and stderr log files
+- Log files are named with server names and timestamps
+- The most recent logs are shown when errors occur
+
+Example error output:
+```
+Failed to launch server 'audio-interface'.
+
+Error details:
+ModuleNotFoundError: No module named 'pyaudio'
+
+This may be caused by missing dependencies or configuration issues.
+Full logs are available at: ~/.mcp-client-multi-server/logs/
+```
+
+For debugging, you can view all server logs with:
+```bash
+# List log files
+ls -la ~/.mcp-client-multi-server/logs/
+
+# View a specific log file
+cat ~/.mcp-client-multi-server/logs/server-name_timestamp_stderr.log
 ```
 
 ## Configuration
@@ -62,12 +228,173 @@ You can also specify a custom configuration file when creating the client.
         "DEBUG": "true"
       }
     },
-    "remote-server": {
-      "url": "wss://example.com/mcp"
+    "websocket-server": {
+      "url": "wss://example.com/mcp/ws",
+      "ws_config": {
+        "ping_interval": 30.0,
+        "ping_timeout": 10.0,
+        "max_message_size": 1048576,
+        "compression": true
+      }
+    },
+    "sse-server": {
+      "type": "sse",
+      "url": "https://example.com/mcp/sse"
+    },
+    "streamable-http-server": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp/stream",
+      "http_config": {
+        "headers": {
+          "Authorization": "Bearer token",
+          "X-API-Key": "api-key-value"
+        }
+      }
     }
   }
 }
 ```
+
+## Server Types
+
+The client supports a variety of MCP server types, each with their own configuration and capabilities.
+
+### General Server Types
+
+- **Python scripts**: Run directly with Python
+- **Node.js scripts**: Run with Node.js
+- **NPX packages**: Run from npm registry without installation
+- **UVX packages**: Run using the UVX package runner
+- **Remote servers**: Connect via WebSockets or SSE
+
+### Specialized Servers
+
+#### Fetch Server
+
+The client provides special handling for the fetch server's URL parameter:
+
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "env": {}
+    }
+  }
+}
+```
+
+To use the fetch server from the command line:
+
+```bash
+python main.py -c config.json query --server fetch --tool fetch --message "https://example.com"
+```
+
+The client automatically converts the message to a URL parameter when using the fetch server.
+
+#### Sequential Thinking Server
+
+The client supports the Sequential Thinking MCP server, which enables step-by-step thinking capabilities:
+
+```json
+{
+  "mcpServers": {
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+**Important Note on Sampling**: The Sequential Thinking server uses MCP sampling callbacks to request LLM completions from the client. These callbacks require an LLM-enabled client (like Claude Desktop) to handle the sampling requests. When using this server programmatically without an LLM-enabled client, some tools may not function correctly. Basic connection and tool listing will work, but tools that require LLM reasoning will need a proper sampling callback implementation.
+
+#### Playwright Server
+
+The Playwright server is configured as a stdio-based process, similar to other NPX-based servers:
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@executeautomation/playwright-mcp-server"]
+    }
+  }
+}
+```
+
+**Important Limitation**: The Playwright MCP server **always** binds to port 3001 regardless of how it's launched, and this behavior is hardcoded in the server. Our client has special handling for this limitation:
+
+1. If port 3001 is already in use and is a valid Playwright MCP server (e.g., from Claude Desktop), the client will connect to that existing server.
+2. If port 3001 is in use but doesn't appear to be a valid MCP server, the client will warn you that port 3001 must be available to use the Playwright server.
+
+To use the Playwright server:
+- Ensure port 3001 is free before launching
+- Or use Claude Desktop's instance if it's already running
+- If another application is using port 3001, you must stop it before using the Playwright server
+
+This configuration matches how Claude Desktop launches the Playwright server. The server is automatically launched when needed.
+
+#### Filesystem Server
+
+The filesystem server provides file system access within specified directories:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"],
+      "env": {}
+    }
+  }
+}
+```
+
+The last argument specifies the root directory that the server is allowed to access.
+
+### Required NPM Packages
+
+To use npx-based MCP servers, the corresponding npm packages must be installed either globally or locally in your project:
+
+```bash
+# Install globally
+npm install -g @modelcontextprotocol/server-filesystem
+
+# Or install locally in your project
+npm install @modelcontextprotocol/server-filesystem
+```
+
+The client will use `npx` to run these packages on demand. The `-y` flag in the configuration automatically answers "yes" to any installation prompts, but having the packages pre-installed ensures faster startup and avoids unexpected network requests.
+
+### Custom Server Implementations
+
+#### Multi-Transport Echo Server
+
+The project includes a multi-transport echo server in `examples/multi_transport_echo.py` that can be configured to run with any of the supported transport types:
+
+```bash
+# Launch as a STDIO server
+python examples/multi_transport_echo.py --transport stdio
+
+# Launch as an SSE server
+python examples/multi_transport_echo.py --transport sse --host localhost --port 8766
+
+# Launch as a Streamable HTTP server
+python examples/multi_transport_echo.py --transport streamable-http --host localhost --port 8767
+```
+
+This server is used extensively in our transport tests to verify consistent behavior across different transport protocols.
 
 ## Usage
 
@@ -92,6 +419,19 @@ python main.py -c config.json stop --server <server-name>
 
 # Show help and available commands
 python main.py --help
+```
+
+#### Server Lifecycle Commands
+
+```bash
+# Launch a server that will persist after client exit
+python main.py -c config.json launch --server echo
+
+# Stop a specific server
+python main.py -c config.json stop --server echo
+
+# Stop all running servers
+python main.py -c config.json stop-all
 ```
 
 #### Server-Specific Examples
@@ -182,11 +522,11 @@ python main.py -c config.json query --server playwright --tool playwright_screen
 python main.py -c config.json query --server playwright --tool playwright_click --message '{"selector": "a.example-link"}'
 ```
 
-## Using as a Module
+### Using as a Module
 
 The MCP Multi-Server Client is designed to be easily integrated into other Python applications. This section covers key usage patterns for developers who want to use the client as a module.
 
-### Basic Usage
+#### Basic Usage
 
 ```python
 import asyncio
@@ -226,7 +566,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### Advanced Usage with Custom Lifecycle Management
+#### Advanced Usage with Custom Lifecycle Management
 
 ```python
 import asyncio
@@ -291,7 +631,7 @@ if __name__ == "__main__":
     asyncio.run(run_mcp_operations())
 ```
 
-### Working with Multiple Servers
+#### Working with Multiple Servers
 
 ```python
 import asyncio
@@ -341,7 +681,7 @@ if __name__ == "__main__":
     asyncio.run(work_with_multiple_servers())
 ```
 
-### Integration with Web Applications
+#### Integration with Web Applications
 
 ```python
 from fastapi import FastAPI, BackgroundTasks
@@ -415,7 +755,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-### Error Handling and Reconnection
+#### Error Handling and Reconnection
 
 ```python
 import asyncio
@@ -506,9 +846,9 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## Running Tests
+## Development and Testing
 
-The project includes comprehensive tests for both Python and npx-based MCP servers.
+The project includes comprehensive tests for all supported MCP server types and transport protocols. The test suite verifies server launching, connection handling, message processing, error reporting, and proper cleanup.
 
 ### Prerequisites
 
@@ -534,6 +874,12 @@ The npx server tests require specific npm packages:
 ```bash
 # Install filesystem server package globally
 npm install -g @modelcontextprotocol/server-filesystem
+
+# Install sequential thinking server
+npm install -g @modelcontextprotocol/server-sequential-thinking
+
+# Install playwright server
+npm install -g @executeautomation/playwright-mcp-server
 ```
 
 Note:
@@ -576,9 +922,93 @@ python -m pytest tests/test_server_cleanup.py -v
 
 # Run API documentation tests
 python -m pytest tests/test_module_integration_examples.py -v
+
+# Run transport-specific tests
+python -m pytest tests/test_echo_transports.py -v
+python -m pytest tests/test_transports.py -v
+
+# Run server-specific tests
+python -m pytest tests/test_fetch_server.py -v
+python -m pytest tests/test_sequential_thinking.py -v
+python -m pytest tests/test_filesystem_server.py -v
+python -m pytest tests/test_audio_interface.py -v
 ```
 
 > **Note:** The test suite includes dedicated tests for NPX servers in `test_npx_servers.py`. These tests are more resilient and provide better diagnostics for NPX-related issues.
+
+### Testing Coverage by Server Type
+
+The test suite includes specific tests for each supported server type:
+
+#### Basic Echo Server Tests (`test_servers.py`, `test_all_transports.py`)
+- Connection establishment
+- Server lifecycle (launch/stop)
+- Tool listing
+- Message processing
+- Response validation
+
+#### Multi-Transport Echo Tests (`test_echo_transports.py`)
+- **STDIO Transport Testing**:
+  * Connection establishment (`test_echo_stdio_connection`)
+  * Ping functionality (`test_echo_stdio_ping`)
+  * Message processing (`test_echo_stdio_process_message`)
+  * Server info retrieval (`test_echo_stdio_server_info`)
+
+- **SSE Transport Testing**:
+  * Server launch (`test_echo_sse_server_launch`)
+  * Client connection (`test_echo_sse_client_connection`)
+  * Ping functionality (`test_echo_sse_ping`)
+  * Message processing (`test_echo_sse_process_message`)
+
+- **HTTP Streamable Transport Testing**:
+  * Server launch (`test_echo_http_server_launch`)
+  * Client connection (`test_echo_http_client_connection`)
+  * Ping functionality (`test_echo_http_ping`)
+  * Message processing (`test_echo_http_process_message`)
+  * Custom headers handling (`test_echo_http_custom_headers`)
+
+- **Multi-Transport Functionality**:
+  * Running multiple transport types simultaneously (`test_run_all_transports_simultaneously`)
+  * Verifying transport-specific response prefixes (`test_transport_specific_prefixes`)
+  * TextContent response handling across all transport types
+
+#### Fetch Server Tests (`test_fetch_server.py`)
+- Server connection and launch/stop functionality
+- Tool listing and validation
+- URL fetching capabilities
+- Response validation for web page content
+- Auto-launch functionality
+- Message shorthand syntax
+
+#### Sequential Thinking Server Tests (`test_sequential_thinking.py`, `test_additional_servers.py`)
+- Server connection capabilities
+- Tool listing and verification
+- Tool execution with parameter validation
+- Server lifecycle management
+
+#### Playwright Server Tests (`test_additional_servers.py`, `test_playwright_port_handling.py`)
+- Connection to the server on port 3001
+- Port 3001 availability checking and conflict resolution
+- Tool listing functionality
+- Basic tool execution
+- Detection of existing MCP server on port 3001
+
+#### Filesystem Server Tests (`test_filesystem_server.py`, `test_npx_servers.py`)
+- Server launching and connection
+- Tool listing and verification
+- Directory listing functionality
+- File operations testing
+
+#### Audio Interface Server Tests (`test_audio_interface.py`)
+- Configuration validation
+- Server launch testing with dependency checking
+- Log retrieval testing
+
+#### Error Handling Tests (`test_error_handling.py`, `test_server_cleanup.py`)
+- Server launch failure detection
+- Error message reporting and validation
+- Resource cleanup after server failures
+- Log file creation and access
 
 ### API Documentation Tests
 
@@ -601,22 +1031,6 @@ If you update the API examples in the README, you should also update the corresp
 1. Verification that the documented examples work correctly
 2. Early detection if API changes break the documented patterns
 3. Executable examples that demonstrate correct API usage
-
-The tests verify:
-- Configuration loading
-- Connection to Python and npx servers
-- Tool discovery
-- Message processing
-- Server launching and stopping
-- Response validation
-- Tool parameter passing
-- Directory listing verification
-- Exact response content validation
-- Proper use of the custom NpxProcessTransport
-- Server resource cleanup
-- Error handling and recovery
-- Process tracking and orphan prevention
-- Server functionality validation
 
 ### Writing Custom Tests
 
@@ -656,232 +1070,99 @@ async def test_custom_tool(client):
         assert "expected_key" in response
 ```
 
+### TextContent Handling in Tests
+
+When testing MCP servers that return TextContent objects (a common format in MCP responses), use the utility function pattern from `test_echo_transports.py`:
+
+```python
+def extract_text_content(response: Any) -> str:
+    """Extract text from TextContent objects or convert response to string."""
+    # Handle None case
+    if response is None:
+        return "None"
+    
+    # Handle list of TextContent objects
+    if hasattr(response, '__iter__') and not isinstance(response, (str, dict)) and hasattr(response, '__len__'):
+        if len(response) > 0 and all(hasattr(item, 'text') for item in response):
+            return response[0].text
+    # Handle single TextContent object
+    elif hasattr(response, 'text'):
+        return response.text
+    # Handle dictionary with text field
+    elif isinstance(response, dict) and 'text' in response:
+        return response['text']
+    # Default to string conversion
+    return str(response)
+
+# Usage in tests
+response = await client.query_server(server_name="server", tool_name="tool")
+response_text = extract_text_content(response)
+assert "expected content" in response_text
+```
+
 ## Included Examples
 
 The project comes with example servers and configurations:
 
 - `examples/echo_server.py`: A simple Python-based MCP server that echoes messages
+- `examples/multi_transport_echo.py`: A server that can run with different transport types
 - `examples/config.json`: Sample configuration file with multiple server types
-
-## Supported Server Types
-
-The client supports various MCP server types:
-
-- **Python scripts**: Run directly with Python
-- **Node.js scripts**: Run with Node.js
-- **NPX packages**: Run from npm registry without installation
-- **UVX packages**: Run using the UVX package runner
-- **Remote servers**: Connect via WebSockets or SSE
-- **Sequential thinking**: MCP server for step-by-step thinking
-- **Playwright**: Web automation (requires an HTTP server)
-
-## NPX Server Support
-
-The client includes a custom `NpxProcessTransport` class that properly handles npm-based MCP servers. When configuring an npx-based server:
-
-1. Set `"command": "npx"` - The npx executable path
-2. Include `"args": ["-y", "package-name", "additional-args"]` - The package name and any additional arguments
-3. Use `"type": "stdio"` - Must be stdio type for local npx servers
-
-## UVX Server Support
-
-The client also supports UVX-based MCP servers. When configuring a uvx-based server:
-
-1. Set `"command": "uvx"` or the full path to the uvx executable
-2. Include `"args": ["package-name", "additional-args"]` - The package name and any additional arguments
-3. Use `"type": "stdio"` - Must be stdio type for local uvx servers
-
-## Server-Specific Configuration and Features
-
-### Fetch Server
-
-The client provides special handling for the fetch server's URL parameter:
-
-```json
-{
-  "mcpServers": {
-    "fetch": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-fetch"],
-      "env": {}
-    }
-  }
-}
-```
-
-To use the fetch server from the command line:
-
-```bash
-python main.py -c config.json query --server fetch --tool fetch --message "https://example.com"
-```
-
-The client automatically converts the message to a URL parameter when using the fetch server.
-
-### Sequential Thinking Server
-
-The client supports the Sequential Thinking MCP server, which enables step-by-step thinking capabilities:
-
-```json
-{
-  "mcpServers": {
-    "sequential-thinking": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sequential-thinking"
-      ],
-      "env": {}
-    }
-  }
-}
-```
-
-**Important Note on Sampling**: The Sequential Thinking server uses MCP sampling callbacks to request LLM completions from the client. These callbacks require an LLM-enabled client (like Claude Desktop) to handle the sampling requests. When using this server programmatically without an LLM-enabled client, some tools may not function correctly. Basic connection and tool listing will work, but tools that require LLM reasoning will need a proper sampling callback implementation.
-
-### Playwright Server
-
-The Playwright server is configured as a stdio-based process, similar to other NPX-based servers:
-
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@executeautomation/playwright-mcp-server"]
-    }
-  }
-}
-```
-
-**Important Limitation**: The Playwright MCP server **always** binds to port 3001 regardless of how it's launched, and this behavior is hardcoded in the server. Our client has special handling for this limitation:
-
-1. If port 3001 is already in use and is a valid Playwright MCP server (e.g., from Claude Desktop), the client will connect to that existing server.
-2. If port 3001 is in use but doesn't appear to be a valid MCP server, the client will warn you that port 3001 must be available to use the Playwright server.
-
-To use the Playwright server:
-- Ensure port 3001 is free before launching
-- Or use Claude Desktop's instance if it's already running
-- If another application is using port 3001, you must stop it before using the Playwright server
-
-This configuration matches how Claude Desktop launches the Playwright server. The server is automatically launched when needed.
-
-### Required NPM Packages
-
-To use npx-based MCP servers, the corresponding npm packages must be installed either globally or locally in your project:
-
-```bash
-# Install globally
-npm install -g @modelcontextprotocol/server-filesystem
-
-# Or install locally in your project
-npm install @modelcontextprotocol/server-filesystem
-```
-
-The client will use `npx` to run these packages on demand. The `-y` flag in the configuration automatically answers "yes" to any installation prompts, but having the packages pre-installed ensures faster startup and avoids unexpected network requests.
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Server Lifecycle Management
-
-The client includes intelligent server lifecycle management to handle different types of servers appropriately:
-
-### Server Types and Lifecycle
-
-- **Local STDIO Servers**: Servers that rely on stdin/stdout pipes for communication (Python scripts, Node.js scripts, etc.) are automatically stopped when the client exits, unless specifically requested to keep running.
-
-- **Socket-based Servers**: Servers that use Unix or TCP sockets for communication can remain running after the client exits and be reconnected to by future client instances.
-
-- **Remote Servers**: For HTTP/WebSocket servers, the client only disconnects but never attempts to stop them.
-
-### Server Registry
-
-The client maintains a registry of running servers in `~/.mcp-client-multi-server/servers.json`, which includes:
-
-- Server name and PID
-- Log file locations
-- Start time
-- Configuration hash
-
-This allows the client to:
-1. Detect running servers across different client instances
-2. Track log files for each server
-3. Reconnect to existing servers rather than launching new instances
-4. Properly clean up resources when servers are stopped
-
-### Using Server Lifecycle Features
-
-#### Launch Command
-
-The `launch` command explicitly starts a server and keeps it running even after the client exits:
-
-```bash
-# Launch a server that will persist after client exit
-python main.py -c config.json launch --server echo
-```
-
-#### Stop and Stop-All Commands
-
-```bash
-# Stop a specific server
-python main.py -c config.json stop --server echo
-
-# Stop all running servers
-python main.py -c config.json stop-all
-```
-
-#### Automatic Stopping Behavior
-
-By default, when using other commands like `query` or `tools`, local STDIO servers are automatically stopped when the client exits. This behavior can be controlled programmatically:
-
-```python
-# Create client
-client = MultiServerClient()
-
-# Close client but keep servers running
-await client.close(stop_servers=False)
-
-# Close client and stop local STDIO servers
-await client.close(stop_servers=True)
-```
-
 ## Future Development
 
-### TODOs for Server Lifecycle Management
+The MCP Multi-Server Client has several potential areas for enhancement in future releases:
 
-The current implementation provides robust, transport-specific server lifecycle management, but several enhancements could be made in future updates:
+### Transport and Protocol Support
 
-#### Process Persistence Improvements
+- **Streamable HTTP Transport**: Add support for the newer recommended transport that combines features of HTTP and SSE in a single endpoint
+- **Enhanced WebSocket Support**: Upgrade our WebSocket implementation to be fully compliant with the latest MCP specification
+- **Resumable Connections**: Support for resuming broken connections, especially for streaming transports
+- **Session Management**: Improved session tracking and management across different transport types
+- **Streaming Response Handling**: Better processing of partial/streaming responses from servers
+- **Transport Auto-Discovery**: Develop smarter transport type detection based on server configuration and runtime behavior
 
-- **Platform-specific Detachment**: Further enhance platform-specific process detachment techniques, especially for macOS and Windows, to ensure servers persist reliably when intended.
+### Server Lifecycle Management
 
-- **Socket Path Detection**: Implement more sophisticated detection of socket-based servers vs pipe-based STDIO servers for more accurate lifecycle management.
+- **Platform-specific Detachment**: Enhance platform-specific process detachment techniques, especially for macOS and Windows, to ensure servers persist reliably
+- **Socket Path Detection**: Implement more sophisticated detection of socket-based servers vs pipe-based STDIO servers for more accurate lifecycle management
+- **PID Validation**: Improve the accuracy of detecting existing server processes by considering additional metadata beyond just the PID
+- **Socket Reconnection**: Enhance reconnection to servers that use STDIO over sockets or IPC, allowing true persistence across client sessions
+- **Process Monitoring**: Add optional monitoring of server health with automatic recovery for critical servers
 
-- **Transport Auto-Discovery**: Develop smarter transport type detection based on server configuration and runtime behavior.
+### Server Registry and Discovery
 
-#### Server Registry Enhancements
+- **Server Discovery**: Add auto-discovery of running servers based on well-known socket paths or ports
+- **Config Comparison**: Add validation to ensure server configs haven't changed before reusing an existing server
+- **Remote Discovery**: Implement mechanisms to discover and connect to remote MCP servers
+- **Capability-based Discovery**: Allow querying servers by their capabilities
 
-- **PID Validation**: Improve the accuracy of detecting existing server processes by considering additional metadata beyond just the PID.
+### Additional Language Server Support
 
-- **Socket Reconnection**: Enhance reconnection to servers that use STDIO over sockets or IPC, allowing true persistence across client sessions.
+The client could be extended to support MCP servers written in other languages (in priority order):
 
-- **Server Discovery**: Add auto-discovery of running servers based on well-known socket paths or ports.
+1. **C#/.NET**: Support for Microsoft's C# implementation and Azure Functions-based MCP servers
+2. **Java/Kotlin**: Support for the official Java SDK with Spring integration
+3. **Go**: Support Go implementations (mcp-go, mcp-golang, Go-MCP)
+4. **Rust**: Add support for Rust-based MCP servers (mcp_client_rs, mcp_rs, mcp-rust-sdk)
+5. **Swift**: Add compatibility with the official Swift SDK for macOS/iOS integrations
 
-- **Config Comparison**: Add validation to ensure server configs haven't changed before reusing an existing server.
+### Extended API Support
 
-#### CLI and Monitoring Improvements
+- **Resources API**: Improve support for application-controlled data sources (Resources API)
+- **Prompts API**: Add support for user-controlled templates (Prompts API)
+- **OAuth Integration**: Add support for OAuth authentication flows for remote MCP servers
+- **Cloud Provider Integration**: Add specific support for cloud-based MCP server platforms
 
-- **Server Status**: Provide more detailed status information for each server, including uptime, client connections, and resource usage.
+### CLI and User Experience
 
-- **Interactive Mode**: Add an interactive shell mode for the CLI for easier server management.
-
-- **Server Logs**: Provide commands to view, filter, and analyze server logs directly from the CLI.
-
-- **Process Monitoring**: Add optional monitoring of server health with automatic recovery for critical servers.
+- **Server Status**: Provide more detailed status information for each server, including uptime, client connections, and resource usage
+- **Interactive Mode**: Add an interactive shell mode for the CLI for easier server management
+- **Server Logs**: Provide commands to view, filter, and analyze server logs directly from the CLI
+- **Multi-part Response Assembly**: Properly assemble and display multi-part streaming responses
 
 ## License
 

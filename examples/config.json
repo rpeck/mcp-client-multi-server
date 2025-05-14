@@ -43,6 +43,66 @@
         "/Users/rpeck"
       ],
       "env": {}
+    },
+    "echo-stdio": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "examples/multi_transport_echo.py",
+        "--name", "echo-stdio-server",
+        "--prefix", "STDIO: ",
+        "--transport", "stdio"
+      ],
+      "env": {}
+    },
+    "echo-sse-server": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "examples/multi_transport_echo.py",
+        "--name", "echo-sse-server",
+        "--prefix", "SSE: ",
+        "--transport", "sse",
+        "--host", "localhost",
+        "--port", "8766"
+      ],
+      "env": {}
+    },
+    "echo-sse-client": {
+      "type": "sse",
+      "url": "http://localhost:8766/mcp/sse"
+    },
+    "echo-http-server": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "examples/multi_transport_echo.py",
+        "--name", "echo-http-server",
+        "--prefix", "HTTP: ",
+        "--transport", "streamable-http",
+        "--host", "localhost",
+        "--port", "8767"
+      ],
+      "env": {}
+    },
+    "echo-http-client": {
+      "type": "streamable-http",
+      "url": "http://localhost:8767/mcp/stream",
+      "http_config": {
+        "headers": {
+          "X-Test-Header": "test-value"
+        }
+      }
+    },
+    "audio-interface": {
+      "type": "stdio",
+      "command": "/Users/rpeck/Dropbox/__tilde/.pyenv/versions/3.13.3/envs/mcp-projects/bin/python",
+      "args": [
+        "/Users/rpeck/Source/mcp-projects/Audio-MCP-Server/audio_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/Users/rpeck/Source/mcp-projects/Audio-MCP-Server"
+      }
     }
   }
 }
