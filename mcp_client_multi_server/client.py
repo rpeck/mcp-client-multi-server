@@ -761,7 +761,8 @@ class MultiServerClient:
         return False
 
     async def query_server(
-        self, server_name: str, message: str = None, tool_name: str = "process_message", args: Dict[str, Any] = None
+        self, server_name: str, message: str = None, tool_name: str = "process_message", args: Dict[str, Any] = None,
+        **kwargs
     ) -> Optional[str]:
         """
         Send a query to a specific server.
@@ -771,6 +772,7 @@ class MultiServerClient:
             message: Message to send (optional, depends on tool)
             tool_name: Name of the tool to call (default: process_message)
             args: Additional arguments to pass to the tool (optional)
+            **kwargs: Additional keyword arguments to pass directly to the tool
 
         Returns:
             Response string or None if failed
@@ -796,14 +798,120 @@ class MultiServerClient:
                 # Start with provided args or empty dict
                 tool_args = args.copy() if args else {}
 
+                # Add any direct keyword arguments
+                for key, value in kwargs.items():
+                    tool_args[key] = value
+
                 # Special handling for fetch server
                 if server_name == "fetch" and tool_name == "fetch":
                     # For fetch server, url is the main parameter
                     if message is not None:
-                        # Add URL to tool_args or override if already present
-                        tool_args["url"] = message
-                        self.logger.info(f"Setting URL parameter for fetch server: {message}")
-                # Regular handling for message parameter
+                        # Check if message is a JSON string
+                        if isinstance(message, str) and message.strip().startswith('{'):
+                            try:
+                                # Try to parse as JSON
+                                parsed = json.loads(message)
+                                if isinstance(parsed, dict) and "url" in parsed:
+                                    # If it has a url key, use the parsed data directly
+                                    tool_args.update(parsed)
+                                    self.logger.info(f"Using JSON parameters for fetch server with URL: {parsed.get('url')}")
+                                else:
+                                    # Missing url or not a dict, use as-is
+                                    tool_args["url"] = message
+                                    self.logger.info(f"Setting URL parameter for fetch server: {message}")
+                            except json.JSONDecodeError:
+                                # Not valid JSON, use as plain URL
+                                tool_args["url"] = message
+                                self.logger.info(f"Setting URL parameter for fetch server: {message}")
+                        else:
+                            # Not JSON, use as plain URL
+                            tool_args["url"] = message
+                            self.logger.info(f"Setting URL parameter for fetch server: {message}")
+                # Special handling for filesystem server
+                elif server_name == "filesystem":
+                    # Filesystem server needs parameter adaptation based on tool
+                    if message is not None:
+                        # Check if message is a JSON string
+                        if isinstance(message, str) and message.strip().startswith('{'):
+                            try:
+                                # Try to parse as JSON
+                                parsed = json.loads(message)
+                                if isinstance(parsed, dict):
+                                    # Handle specific tool types for filesystem server
+                                    if tool_name == "search_files":
+                                        # search_files needs 'path' and 'pattern' parameters
+                                        if "directory" in parsed:
+                                            # Map 'directory' to 'path' for backward compatibility
+                                            parsed["path"] = parsed.pop("directory")
+                                        
+                                        # Note: The current filesystem server (version 2025.3.28) has a limitation
+                                        # where wildcards like "*.txt" don't work properly in search patterns.
+                                        # Only exact filenames work reliably.
+                                        if "pattern" not in parsed:
+                                            # Set default pattern if not provided - use exact filename if known
+                                            if "filename" in parsed:
+                                                parsed["pattern"] = parsed.pop("filename")
+                                            else:
+                                                parsed["pattern"] = "*"
+                                                self.logger.warning(
+                                                    "Note: search_files with wildcard patterns like '*' or '*.txt' may not "
+                                                    "work with the current filesystem server version. For reliable results, "
+                                                    "provide an exact filename instead."
+                                                )
+                                        elif "*" in parsed["pattern"] or "?" in parsed["pattern"]:
+                                            self.logger.warning(
+                                                f"Note: search_files with wildcard pattern '{parsed['pattern']}' may not "
+                                                f"work with the current filesystem server version. For reliable results, "
+                                                f"provide an exact filename instead."
+                                            )
+                                            
+                                        self.logger.info(f"Mapping filesystem search_files parameters: path={parsed.get('path')}, pattern={parsed.get('pattern')}")
+                                    
+                                    elif tool_name == "list_directory":
+                                        # list_directory needs 'path' parameter
+                                        if "directory" in parsed:
+                                            # Map 'directory' to 'path' for backward compatibility
+                                            parsed["path"] = parsed.pop("directory")
+                                        self.logger.info(f"Mapping filesystem list_directory parameter: path={parsed.get('path')}")
+                                    
+                                    elif tool_name in ["read_file", "write_file", "get_file_info"]:
+                                        # These tools require a 'path' parameter
+                                        self.logger.info(f"Using filesystem parameters for {tool_name}: {parsed}")
+                                    
+                                    # Update tool args with parsed parameters
+                                    tool_args.update(parsed)
+                                else:
+                                    # Not a dict, use as message parameter
+                                    tool_args["message"] = message
+                            except json.JSONDecodeError:
+                                # Not valid JSON, use as regular message
+                                tool_args["message"] = message
+                        else:
+                            # Not JSON, might be a direct path
+                            if tool_name in ["read_file", "write_file", "get_file_info", "list_directory", "search_files"]:
+                                tool_args["path"] = message
+                            else:
+                                tool_args["message"] = message
+                # Handle JSON string in message parameter
+                elif message is not None and not tool_args:
+                    # Try to parse message as JSON if it's a string
+                    if isinstance(message, str):
+                        try:
+                            parsed = json.loads(message)
+                            if isinstance(parsed, dict):
+                                # Use parsed JSON as tool arguments
+                                tool_args.update(parsed)
+                                self.logger.debug(f"Parsed JSON arguments from message: {tool_args}")
+                            else:
+                                # Not a dict, use as message parameter
+                                tool_args["message"] = message
+                        except json.JSONDecodeError:
+                            # Not JSON, use as regular message
+                            tool_args["message"] = message
+                    else:
+                        # Not a string, use as regular message
+                        tool_args["message"] = message
+                # Regular handling for message parameter when other args exist
                 elif message is not None:
                     # Only set message parameter if not already in tool_args
                     if "message" not in tool_args:
@@ -811,8 +919,79 @@ class MultiServerClient:
 
                 # Call the tool with the combined arguments
                 self.logger.debug(f"Calling tool {tool_name} with args: {tool_args}")
-                response = await client.call_tool(tool_name, tool_args)
-                return response
+                try:
+                    response = await client.call_tool(tool_name, tool_args)
+                    return response
+                except Exception as e:
+                    detailed_error = None
+                    # Extract the actual error message from TaskGroup exceptions
+                    if "unhandled errors in a TaskGroup" in str(e):
+                        import traceback
+                        tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
+                        error_found = False
+                        
+                        # First try to find a ClientError in the traceback
+                        for line in reversed(tb_lines):
+                            if "Error:" in line and "ClientError:" in line:
+                                error_msg = line.split("ClientError:", 1)[1].strip()
+                                self.logger.error(f"Server error: {error_msg}")
+                                detailed_error = error_msg
+                                error_found = True
+                                break
+                        
+                        # If no ClientError found, look for specific error patterns
+                        if not error_found:
+                            # Look for filesystem server errors
+                            for line in tb_lines:
+                                if "path outside allowed directories:" in line:
+                                    matched_part = line.split("path outside allowed directories:", 1)[1].strip()
+                                    error_msg = f"Access denied - path outside allowed directories: {matched_part}"
+                                    self.logger.error(f"Filesystem error: {error_msg}")
+                                    detailed_error = error_msg
+                                    error_found = True
+                                    break
+                                elif "ENOENT:" in line:
+                                    matched_part = line.split("ENOENT:", 1)[1].strip()
+                                    error_msg = f"ENOENT: {matched_part}"
+                                    self.logger.error(f"Filesystem error: {error_msg}")
+                                    detailed_error = error_msg
+                                    error_found = True
+                                    break
+                                elif "EACCES:" in line:
+                                    matched_part = line.split("EACCES:", 1)[1].strip()
+                                    error_msg = f"EACCES: {matched_part}"
+                                    self.logger.error(f"Filesystem error: {error_msg}")
+                                    detailed_error = error_msg
+                                    error_found = True
+                                    break
+                        
+                        # If no filesystem-specific error found, look for any error message
+                        if not error_found:
+                            for line in reversed(tb_lines):
+                                if "Error:" in line:
+                                    error_parts = line.split("Error:", 1)
+                                    if len(error_parts) > 1:
+                                        error_msg = error_parts[1].strip()
+                                        self.logger.error(f"Error details: {error_msg}")
+                                        detailed_error = error_msg
+                                        error_found = True
+                                        break
+                        
+                        # If still no detailed error found, check exception cause and context
+                        if not error_found:
+                            if hasattr(e, "__cause__") and e.__cause__ is not None:
+                                self.logger.error(f"Underlying cause: {e.__cause__}")
+                            if hasattr(e, "__context__") and e.__context__ is not None:
+                                self.logger.error(f"Error context: {e.__context__}")
+                                
+                    # Log the full error
+                    self.logger.debug(f"Full error: {str(e)}")
+                    
+                    # Raise a more specific error if we found details
+                    if detailed_error:
+                        raise RuntimeError(detailed_error) from e
+                    else:
+                        raise
         except Exception as e:
             self.logger.error(f"Error querying server {server_name}: {e}")
             return None

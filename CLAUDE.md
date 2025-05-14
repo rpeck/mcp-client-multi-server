@@ -93,6 +93,13 @@ Each supported server type has dedicated tests:
 6. **Filesystem Server**: `tests/test_filesystem_server.py`, `tests/test_npx_servers.py`
    - Tests NPX-based server launching
    - Verifies filesystem operations and tool discovery
+   - Tests three different parameter passing methods:
+     * JSON string in message parameter
+     * Args dictionary
+     * Direct keyword arguments
+   - Tests security boundary enforcement
+   - Tests error handling for nonexistent paths
+   - Tests file operations with temporary files
 
 7. **Audio Interface Server**: `tests/test_audio_interface.py`
    - Tests configuration validation
@@ -232,6 +239,67 @@ The client supports detailed transport configuration through the config file:
 }
 ```
 
+### JSON Message Parameter Handling and Server-Specific Tools
+
+The client supports multiple formats for parameter passing when querying servers:
+
+1. **JSON String in Message**: For CLI usage, passing a JSON string as the message parameter:
+   ```python
+   client.query_server(server_name="filesystem", tool_name="list_directory", 
+                       message='{"path": "/path/to/dir"}')
+   ```
+
+2. **Args Dictionary**: Using a dictionary for the args parameter:
+   ```python
+   client.query_server(server_name="filesystem", tool_name="list_directory", 
+                       args={"path": "/path/to/dir"})
+   ```
+
+3. **Direct Keyword Arguments**: Using keyword arguments directly:
+   ```python
+   client.query_server(server_name="filesystem", tool_name="list_directory", 
+                       path="/path/to/dir")
+   ```
+
+The client automatically parses JSON strings in the message parameter to support the common CLI pattern of using `--message '{"key": "value"}'`. This functionality is tested in `tests/test_filesystem_server.py` with all three parameter passing methods.
+
+#### Server-Specific Tool Mapping
+
+The client handles server-specific tool naming conventions:
+
+1. **Fetch Server**: Automatically maps the default tool name from `process_message` to `fetch`:
+   ```python
+   # These are equivalent:
+   client.query_server(server_name="fetch", message="https://example.com")
+   client.query_server(server_name="fetch", tool_name="fetch", message="https://example.com")
+   ```
+
+   The fetch server also supports multiple parameter formats:
+   ```python
+   # Simple URL string
+   client.query_server(server_name="fetch", message="https://example.com")
+   
+   # JSON string with URL and optional parameters
+   client.query_server(server_name="fetch", message='{"url": "https://example.com", "method": "GET"}')
+   
+   # Args dictionary
+   client.query_server(server_name="fetch", args={"url": "https://example.com"})
+   ```
+
+2. **Filesystem Server**: The CLI has special validation for filesystem paths:
+   ```python
+   # This validates the path security before sending the request:
+   client.query_server(server_name="filesystem", tool_name="list_directory", 
+                      message='{"path": "/Users/rpeck"}')
+   ```
+
+   When validating filesystem paths:
+   - Path security is checked before even attempting to connect to the server
+   - Helpful error messages are shown for paths outside allowed directories
+   - The CLI provides specific examples of correct usage when validation fails
+
+This server-specific handling makes the CLI more user-friendly by adapting to each server's conventions and providing context-appropriate error messages.
+
 ### Server Registry and Error Handling
 
 The client tracks running servers in `~/.mcp-client-multi-server/servers.json`:
@@ -251,6 +319,18 @@ The client has a robust error reporting system for server launches that is thoro
   1. Current running processes with log path attributes
   2. Server registry entries for previously launched servers
   3. Log directory for any logs matching the server name pattern
+
+#### Enhanced TaskGroup Error Handling
+
+The client includes special handling for "unhandled errors in a TaskGroup" exceptions, which helps debug issues with server queries (particularly filesystem operations):
+
+- The error handling system extracts detailed error messages from TaskGroup exceptions
+- It checks for ClientError messages in the traceback
+- It searches for error information in the exception's cause and context
+- For filesystem operations, it provides user-friendly error messages for common issues:
+  - Path access errors: "Access denied - path outside allowed directories"
+  - File not found errors: "ENOENT: no such file or directory"
+  - Permission issues: "EACCES: permission denied"
 
 #### Error Handling Tests
 

@@ -349,7 +349,13 @@ The client supports the Sequential Thinking MCP server, which enables step-by-st
 }
 ```
 
-**Important Note on Sampling**: The Sequential Thinking server uses MCP sampling callbacks to request LLM completions from the client. These callbacks require an LLM-enabled client (like Claude Desktop) to handle the sampling requests. When using this server programmatically without an LLM-enabled client, some tools may not function correctly. Basic connection and tool listing will work, but tools that require LLM reasoning will need a proper sampling callback implementation.
+**Important Note - Not Yet Fully Functional**: The Sequential Thinking server is currently **not fully functional** with this client implementation. The server requires MCP sampling callbacks to request LLM completions from the client, which this standalone client doesn't yet provide. When using the Sequential Thinking server:
+
+- Basic connection and tool listing will work
+- Tools that require LLM reasoning (most tools) will fail
+- Full functionality requires an LLM-enabled client (like Claude Desktop)
+
+We're working on implementing proper sampling callback support in a future release. For now, consider this server configuration as experimental.
 
 #### Playwright Server
 
@@ -381,7 +387,7 @@ This configuration matches how Claude Desktop launches the Playwright server. Th
 
 #### Filesystem Server
 
-The filesystem server provides file system access within specified directories:
+The filesystem server provides secure file system access within specified directories:
 
 ```json
 {
@@ -396,7 +402,42 @@ The filesystem server provides file system access within specified directories:
 }
 ```
 
-The last argument specifies the root directory that the server is allowed to access.
+The last argument specifies the root directory that the server is allowed to access. The server strictly enforces security, preventing access to any files or directories outside the allowed root path.
+
+**Enhanced JSON Message Support:**
+The client automatically parses JSON-formatted strings in the message parameter when querying this server:
+
+```python
+# These three formats are equivalent:
+
+# Method 1: Using JSON string in message parameter (simplest for CLI)
+client.query_server(server_name="filesystem", tool_name="list_directory", 
+                   message='{"path": "/path/to/dir"}')
+
+# Method 2: Using args dictionary
+client.query_server(server_name="filesystem", tool_name="list_directory", 
+                   args={"path": "/path/to/dir"})
+
+# Method 3: Using direct keyword arguments
+client.query_server(server_name="filesystem", tool_name="list_directory", 
+                   path="/path/to/dir")
+```
+
+This flexibility allows you to use the most convenient format for your specific use case:
+- JSON strings are ideal for CLI usage and when parameters are dynamically constructed
+- Args dictionaries are useful when parameters are already in dictionary form
+- Direct keyword arguments provide the cleanest code when hardcoded in Python
+
+**Error Handling:**
+The client provides enhanced error handling for filesystem operations, with detailed error messages when:
+- Paths are outside the allowed directory
+- Files or directories don't exist
+- Permission issues occur
+- JSON format errors are detected in message strings
+
+**Known Limitations:**
+- The current filesystem server version (2025.3.28) has issues with the `search_files` operation when using wildcard patterns (e.g., `*.txt`). When using wildcards, the operation may time out or return "No matches found" even when matching files exist. For reliable results, use exact filenames with the `search_files` operation or consider using `list_directory` as an alternative.
+- The client automatically logs a warning when using wildcards with `search_files` and provides appropriate parameter mapping to work around these limitations.
 
 ### Required NPM Packages
 
@@ -503,39 +544,97 @@ python main.py -c config.json query --server filesystem --tool read_file --messa
 
 # Write to a file
 python main.py -c config.json query --server filesystem --tool write_file --message '{"path": "/path/to/file.txt", "content": "Hello, world!"}'
+
+# Get detailed file information
+python main.py -c config.json query --server filesystem --tool get_file_info --message '{"path": "/path/to/file.txt"}'
+
+# Create a directory
+python main.py -c config.json query --server filesystem --tool create_directory --message '{"path": "/path/to/new_dir"}'
+
+# Show a recursive directory tree
+python main.py -c config.json query --server filesystem --tool directory_tree --message '{"path": "/path/to/dir", "depth": 2}'
+
+# Search for files - note: exact filenames work better than wildcards in current server version
+python main.py -c config.json query --server filesystem --tool search_files --message '{"path": "/path/to/dir", "pattern": "example.txt"}'
+
+# Alternative: List directory (more reliable than search with wildcards)
+python main.py -c config.json query --server filesystem --tool list_directory --message '{"path": "/path/to/dir"}'
+
+# View list of allowed directories (security boundaries)
+python main.py -c config.json query --server filesystem --tool list_allowed_directories
 ```
 
+The client provides enhanced error messages for common filesystem issues:
+
+- Path access errors: "Access denied - path outside allowed directories: /etc not in /Users/username"
+- File not found: "ENOENT: no such file or directory, open '/path/to/nonexistent.txt'"
+- Directory not found: "ENOENT: no such file or directory, scandir '/path/to/nonexistent_dir'"
+- Permission errors: "EACCES: permission denied, read '/path/to/protected_file'"
+
 ##### Fetch Server
+
+The fetch server uses a default tool name of `fetch` (not `process_message`), which the client handles automatically:
 
 ```bash
 # List fetch server tools
 python main.py -c config.json tools --server fetch
 
 # Fetch a web page (using message parameter)
+# This automatically uses the 'fetch' tool instead of 'process_message'
 python main.py -c config.json query --server fetch --message "https://example.com"
 
-# Fetch a web page (using tool and args)
-python main.py -c config.json query --server fetch --tool fetch --message '{"url": "https://example.com"}'
+# Fetch a web page with JSON message containing URL
+python main.py -c config.json query --server fetch --message '{"url": "https://example.com"}'
 
-# Fetch with additional parameters
-python main.py -c config.json query --server fetch --tool fetch --message '{
+# Fetch with additional parameters in JSON
+python main.py -c config.json query --server fetch --message '{
   "url": "https://example.com",
   "method": "GET",
   "headers": {"User-Agent": "MCP Client"}
 }'
 ```
 
+**Enhanced URL and JSON Parameter Handling:**
+
+The client provides intelligent parameter handling for the fetch server:
+
+1. **Simple URL Strings**: Pass a URL directly as the message parameter
+   ```python
+   client.query_server(server_name="fetch", message="https://example.com")
+   ```
+
+2. **JSON-formatted URLs**: Pass a JSON object with a URL and other parameters
+   ```python
+   client.query_server(server_name="fetch", message='{"url": "https://example.com", "method": "GET"}')
+   ```
+
+3. **Args Dictionary**: Use the args parameter to provide URL and other options
+   ```python
+   client.query_server(server_name="fetch", tool_name="fetch", args={"url": "https://example.com"})
+   ```
+
+All three methods work identically, providing flexibility based on your use case. The CLI automatically displays the URL being fetched for better user experience.
+```
+
 ##### Sequential Thinking Server
 
+**Note: The Sequential Thinking server is currently not fully functional with this client implementation.**
+
+Currently, only basic connections and tool listing work reliably:
+
 ```bash
-# List sequential-thinking server tools
+# List sequential-thinking server tools (this works)
 python main.py -c config.json tools --server sequential-thinking
 
-# View server information
+# View server information (this works)
 python main.py -c config.json query --server sequential-thinking --tool server_info
+```
 
-# Start a thinking sequence with first thought
-# Note: This will require LLM sampling support to complete properly
+The following example requires LLM sampling callbacks that are not yet supported, and will fail:
+
+```bash
+# NOT WORKING YET: Start a thinking sequence with first thought
+# This requires LLM sampling support which is not yet implemented
 python main.py -c config.json query --server sequential-thinking --tool sequentialthinking --message '{
   "thought": "First, I need to understand the problem...",
   "thoughtNumber": 1,
@@ -543,6 +642,8 @@ python main.py -c config.json query --server sequential-thinking --tool sequenti
   "nextThoughtNeeded": true
 }'
 ```
+
+We're working on implementing proper sampling callback support in a future release.
 
 ##### Playwright Server
 

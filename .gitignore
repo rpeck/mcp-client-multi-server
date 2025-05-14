@@ -50,3 +50,7 @@ htmlcov/
 # Node
 node_modules/
 **/.claude/settings.local.json
+
+# Debug scripts
+debug_*.py
+debug_*.sh
