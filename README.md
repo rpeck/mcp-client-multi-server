@@ -480,6 +480,9 @@ Here are examples for different server types:
 python main.py -c config.json tools --server echo
 
 # Send a simple message to the echo server
+python main.py -c config.json query --server echo --tool process_message --message "Hello world"
+
+# Or use the default tool (also process_message) by omitting the --tool parameter
 python main.py -c config.json query --server echo --message "Hello world"
 
 # Use the ping tool explicitly
