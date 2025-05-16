@@ -54,3 +54,21 @@ node_modules/
 # Debug scripts
 debug_*.py
 debug_*.sh
+
+# Runtime files
+.server.pid
+.server.ready
+*.log
+stderr.log
+uv.lock
+.cb_session.json
+
+# Temporary files and work-in-progress scripts
+*_debug.log
+*_debug.py
+fix_*.py
+*_fix.py
+test_*.sh
+use_*.py
+run_*_debug.py
+run_*_test.py

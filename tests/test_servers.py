@@ -358,13 +358,8 @@ async def test_npx_server_query(client, require_npx_filesystem):
         assert any("/Users/rpeck" in path for path in directory_strings), "Expected allowed directory not found in response"
 
 
-@pytest.mark.asyncio
-async def test_npx_filesystem_list_directory(client, require_npx_filesystem):
-    """Test listing a directory with the filesystem server."""
-    # Skip this test - let's focus on the standalone NPX test instead
-    # This will be cleaner than trying to fix the integration between
-    # different server types
-    pytest.skip("Running in dedicated test_npx_servers.py instead")
+# Test removed: test_npx_filesystem_list_directory was redundant and is now covered
+# in the dedicated test_npx_servers.py file with more comprehensive testing
 
 
 @pytest.mark.asyncio

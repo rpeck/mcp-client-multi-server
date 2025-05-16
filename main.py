@@ -62,8 +62,14 @@ async def list_servers(client: MultiServerClient, args: argparse.Namespace) -> N
 async def query_server(client: MultiServerClient, args: argparse.Namespace) -> None:
     """Query a specific server with a message."""
     if not args.server:
-        print("Error: --server argument is required")
+        print("Error: --server argument is required", file=sys.stderr)
         return
+        
+    # Set server-specific defaults
+    tool_name = args.tool
+    if args.server == "fetch" and tool_name == "process_message":
+        # Special case: fetch server uses 'fetch' as its default tool
+        tool_name = "fetch"
         
     # Optional message parameter
     message = None
@@ -71,20 +77,103 @@ async def query_server(client: MultiServerClient, args: argparse.Namespace) -> N
         message = args.message
         print(f"Querying server '{args.server}' with message: {args.message}")
     else:
-        print(f"Querying server '{args.server}' with tool: {args.tool}")
+        print(f"Querying server '{args.server}' with tool: {tool_name}")
         
-    response = await client.query_server(args.server, message, tool_name=args.tool)
+    # Enhanced error handling for JSON messages
+    if args.message and args.message.strip().startswith('{'):
+        try:
+            # Validate JSON format
+            parsed_json = json.loads(args.message)
+            print("JSON message format detected and validated")
+            
+            # Special notice for fetch server with JSON
+            if args.server == "fetch" and "url" in parsed_json:
+                print(f"Using URL: {parsed_json['url']}")
+        except json.JSONDecodeError as e:
+            print(f"Warning: Message looks like JSON but has syntax errors: {e}", file=sys.stderr)
+            print("The server may reject this message. Please check your JSON format.", file=sys.stderr)
+            return
+
+    # Add special handling for filesystem server
+    if args.server == "filesystem":
+        # For list_directory test for path access before executing
+        if tool_name == "list_directory" and message:
+            try:
+                # Parse the JSON message to check the path
+                if isinstance(message, str) and message.strip().startswith('{'):
+                    try:
+                        params = json.loads(message)
+                        if "path" in params:
+                            path = params["path"]
+                            # Check for obvious security violations
+                            if not path.startswith("/Users/rpeck"):
+                                print(f"\nAccess denied: The path '{path}' is outside the allowed directories.", file=sys.stderr)
+                                print("The filesystem server is only allowed to access paths under /Users/rpeck", file=sys.stderr)
+                                print("\nFor filesystem server, make sure your query includes a valid path within allowed directories.", file=sys.stderr)
+                                print("Example: --message '{\"path\": \"/Users/rpeck\"}'", file=sys.stderr)
+                                # No need to even try the request, return early
+                                return
+                    except json.JSONDecodeError:
+                        # Already checked above, just continue
+                        pass
+            except Exception as e:
+                print(f"Error parsing message: {e}", file=sys.stderr)
     
-    if response:
-        print("\nResponse:")
-        # Handle TextContent objects from FastMCP
-        if hasattr(response, '__iter__') and all(hasattr(item, 'text') for item in response):
-            for item in response:
-                print(item.text)
+    # Execute the query
+    try:
+        response = await client.query_server(args.server, message, tool_name=tool_name)
+        
+        # Display the response if successful
+        if response:
+            print("\nResponse:")
+            # Handle TextContent objects from FastMCP
+            if hasattr(response, '__iter__') and all(hasattr(item, 'text') for item in response):
+                for item in response:
+                    print(item.text)
+            else:
+                print(response)
         else:
-            print(response)
-    else:
-        print("\nNo response received or an error occurred.")
+            print("\nNo response received or the server returned an empty response.", file=sys.stderr)
+            
+            # Special error handling for filesystem server when response is None
+            if args.server == "filesystem":
+                print("\nFor filesystem server, make sure your query includes a valid path within allowed directories.", file=sys.stderr)
+                print("Example: --message '{\"path\": \"/Users/rpeck\"}'", file=sys.stderr)
+                
+                # Show allowed directories
+                try:
+                    allowed_dirs = await client.query_server(args.server, tool_name="list_allowed_directories")
+                    if allowed_dirs:
+                        print(f"\nAllowed directories: {allowed_dirs}", file=sys.stderr)
+                except Exception:
+                    pass
+    except Exception as e:
+        # Handle specific exception types better
+        print(f"\nError: {e}", file=sys.stderr)
+        
+        # Special error handling for filesystem server
+        if args.server == "filesystem":
+            error_str = str(e)
+            if "path outside allowed directories" in error_str:
+                print("\nAccess denied: The path you tried to access is outside the allowed directories.", file=sys.stderr)
+            elif "ENOENT" in error_str or "no such file or directory" in error_str:
+                print("\nFile or directory not found. Please check that the path exists.", file=sys.stderr)
+            elif "EACCES" in error_str or "permission denied" in error_str:
+                print("\nPermission denied. The server doesn't have access to this path.", file=sys.stderr)
+            
+            print("\nFor filesystem server, make sure your query includes a valid path within allowed directories.", file=sys.stderr)
+            print("Example: --message '{\"path\": \"/Users/rpeck\"}'", file=sys.stderr)
+            
+            # Show allowed directories
+            try:
+                allowed_dirs = await client.query_server(args.server, tool_name="list_allowed_directories")
+                if allowed_dirs:
+                    print(f"\nAllowed directories: {allowed_dirs}", file=sys.stderr)
+            except Exception:
+                pass
+            
+    except Exception as e:
+        print(f"\nUnexpected error: {e}", file=sys.stderr)
 
 
 async def launch_server(client: MultiServerClient, args: argparse.Namespace) -> None:
