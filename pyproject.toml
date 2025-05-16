@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-client = "mcp_client_multi_server.main:main"
+mcp-client = "mcp_client_multi_server.cli:main"
 
 [project.optional-dependencies]
 dev = [
