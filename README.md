@@ -27,6 +27,8 @@ A Python client for connecting to multiple Model Context Protocol (MCP) servers 
   - [Writing Custom Tests](#writing-custom-tests)
   - [TextContent Handling in Tests](#textcontent-handling-in-tests)
 - [Included Examples](#included-examples)
+- [Integration Guides](#integration-guides)
+  - [Crunchbase Integration](#crunchbase-integration)
 - [Contributing](#contributing)
 - [Future Development](#future-development)
   - [Transport and Protocol Support](#transport-and-protocol-support)
@@ -1246,6 +1248,31 @@ The project comes with example servers and configurations:
 - `examples/echo_server.py`: A simple Python-based MCP server that echoes messages
 - `examples/multi_transport_echo.py`: A server that can run with different transport types
 - `examples/config.json`: Sample configuration file with multiple server types
+
+## Integration Guides
+
+### Crunchbase Integration
+
+The client can be used with the Crunchbase MCP server for company data retrieval:
+
+```bash
+# Search for a company
+python crunchbase_search.py company "Anthropic"
+
+# Get company by slug (more reliable with trial accounts)
+python crunchbase_search.py slug "anthropic"
+
+# Check authentication status
+python crunchbase_search.py check
+```
+
+The integration supports:
+- Company searches by name
+- Detailed company information by slug
+- Authentication status checking
+- Browser cookie import
+
+For detailed instructions on setting up and using the Crunchbase integration, see [docs/CRUNCHBASE_INTEGRATION.md](docs/CRUNCHBASE_INTEGRATION.md).
 
 ## Contributing
 

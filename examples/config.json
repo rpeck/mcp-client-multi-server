@@ -103,6 +103,17 @@
       "env": {
         "PYTHONPATH": "/Users/rpeck/Source/mcp-projects/Audio-MCP-Server"
       }
+    },
+    "crunchbase": {
+      "type": "streamable-http",
+      "url": "http://localhost:8000/mcp/stream",
+      "http_config": {
+        "headers": {
+          "X-Debug": "true",
+          "X-Client": "multi-server-client"
+        },
+        "timeout": 180.0
+      }
     }
   }
 }
